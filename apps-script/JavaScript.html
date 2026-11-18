@@ -1,0 +1,510 @@
+<script>
+var S = { user: null, members: [], records: [], stack: [], view: 'home', cur: null, rec: null, edit: null,
+  files: [], cat: 'Prescription', who: null, filter: 'All', mode: 'member', pg: 0, blobs: {}, meds: [], docs: [] };
+var CATS = ['Prescription', 'Lab', 'Dental', 'Eye', 'General', 'Other'];
+var SHORT = { Prescription: 'Rx', Lab: 'Lab', Dental: 'Dental', Eye: 'Eye', General: 'Gen', Other: 'Other' };
+var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+var MONFULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+var $ = function (i) { return document.getElementById(i); };
+var ACT = {};
+
+/* ───── helpers ───── */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+var TOKEN = null;
+var NEEDS_TOKEN = { bootstrap: 1, saveMember: 1, saveRecord: 1, getFile: 1, deleteRecord: 1 };
+function gs(fn) {
+  var a = [].slice.call(arguments, 1);
+  if (NEEDS_TOKEN[fn]) a.unshift(TOKEN);
+  return new Promise(function (ok, no) {
+    var r = google.script.run.withSuccessHandler(ok).withFailureHandler(function (e) {
+      if (msg(e).indexOf('enter your PIN') > -1) { TOKEN = null; showPin(); }
+      no(e);
+    });
+    r[fn].apply(r, a);
+  });
+}
+function busy(on) { $('busy').classList.toggle('on', !!on); }
+var tt;
+function toast(m, err) {
+  var t = $('toast'); t.textContent = m; t.className = 'toast on' + (err ? ' err' : '');
+  clearTimeout(tt); tt = setTimeout(function () { t.className = 'toast'; }, 3200);
+}
+function msg(e) {
+  var s = String((e && e.message) || e || 'Something went wrong.').replace(/^Error:\s*/, '');
+  return s.indexOf('PIN_REQUIRED') > -1 ? 'Locked. Please enter your PIN.' : s;
+}
+function isAdmin() { return S.user && S.user.Role === 'Admin'; }
+function mem(id) { return S.members.filter(function (m) { return m.MemberID === id; })[0]; }
+function pname(id) { var m = mem(id); return m ? m.Name : 'Unknown'; }
+function ymd(s) { var p = String(s).split('-'); return { y: +p[0], m: (+p[1]) - 1, d: +p[2] }; }
+function dm(s) { var x = ymd(s); return { d: x.d, m: MON[x.m] || '' }; }
+function dmy(s) { var x = ymd(s); return x.d + ' ' + (MON[x.m] || '') + ' ' + x.y; }
+function age(dob) {
+  if (!dob) return '';
+  var x = ymd(dob), n = new Date(), mo = (n.getFullYear() - x.y) * 12 + n.getMonth() - x.m - (n.getDate() < x.d ? 1 : 0);
+  return mo < 24 ? Math.max(mo, 0) + 'm' : Math.floor(mo / 12) + 'y';
+}
+function recTitle(r) { return r.Title || (r.Doctor ? SHORT[r.Category] + ' - ' + r.Doctor : r.Category); }
+function needs(r) { return !r.Title && !r.Doctor && !r.Medicines; }
+function sortRecs(a) { return a.sort(function (x, y) { return x.Date < y.Date ? 1 : x.Date > y.Date ? -1 : (x.CreatedAt < y.CreatedAt ? 1 : -1); }); }
+function activeMembers() { return S.members.filter(function (m) { return m.Active; }); }
+
+function prep(r) {
+  r._hay = [r.Title, r.Doctor, r.Medicines, r.Notes, pname(r.MemberID), r.Category, SHORT[r.Category]].join(' ').toLowerCase();
+  return r;
+}
+function buildIndex() {
+  S.records.forEach(prep);
+  var m = {}, d = {};
+  S.records.forEach(function (r) {
+    if (r.Doctor) d[r.Doctor] = (d[r.Doctor] || 0) + 1;
+    r.Medicines.split('\n').forEach(function (l) { l = l.trim(); if (l) m[l] = (m[l] || 0) + 1; });
+  });
+  var top = function (o) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a]; }); };
+  S.meds = top(m); S.docs = top(d);
+  $('docs').innerHTML = S.docs.map(function (x) { return '<option value="' + esc(x) + '">'; }).join('');
+}
+function matches(r, q) {
+  var t = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return t.every(function (w) { return r._hay.indexOf(w) > -1; });
+}
+
+/* ───── navigation ───── */
+var VIEWS = ['home', 'list', 'rec', 'add', 'lock'];
+function show(v) {
+  S.view = v;
+  VIEWS.forEach(function (n) { $('v-' + n).classList.toggle('on', n === v); });
+  $('fab').style.display = (v === 'home' || v === 'list') ? '' : 'none';
+  window.scrollTo(0, 0);
+}
+function go(v) { S.stack.push(S.view); show(v); }
+function back() {
+  var v = S.stack.pop() || 'home';
+  show(v);
+  if (v === 'home') renderHome(); else if (v === 'list') renderList(); else if (v === 'rec') renderRec();
+}
+
+/* ───── home ───── */
+function renderHome() {
+  var ms = activeMembers();
+  $('people').innerHTML = ms.map(function (m, i) {
+    return '<button class="who" data-act="member" data-id="' + m.MemberID + '"><i class="av a' + (i % 6) + '">' + esc(m.Name.charAt(0).toUpperCase()) +
+      '</i><b>' + esc(m.Name) + '</b><small>' + esc(age(m.DOB) || m.Relation) + '</small></button>';
+  }).join('') + (isAdmin() ? '<button class="who plus" data-act="newMember"><i class="av">+</i><b>Add</b><small>person</small></button>' : '');
+  var n = S.records.filter(needs).length;
+  $('tray').innerHTML = n ? '<button class="tray" data-act="needs"><span>Needs details (' + n + ')</span><span>&#8250;</span></button>' : '';
+  var q = $('q').value.trim(), list;
+  if (q) {
+    list = sortRecs(S.records.filter(function (r) { return matches(r, q); }));
+    $('homeList').innerHTML = '<div class="sec"><span>Results (' + list.length + ')</span></div>' + listHtml(list, true, true);
+  } else {
+    list = sortRecs(S.records.slice()).slice(0, 8);
+    $('homeList').innerHTML = '<div class="sec"><span>Recent</span></div>' + listHtml(list, true, false);
+  }
+}
+function rowHtml(r, person, med) {
+  var x = dm(r.Date), sub = [];
+  if (person) sub.push(pname(r.MemberID));
+  if (r.Doctor && r.Title) sub.push(r.Doctor);
+  var meds = med && r.Medicines ? '<div class="s">' + esc(r.Medicines.split('\n').filter(Boolean).map(function (l) { return l.split(' - ')[0]; }).join(', ')) + '</div>' : '';
+  return '<div class="row" data-act="open" data-id="' + r.RecordID + '"><div class="d"><b>' + x.d + '</b><span>' + x.m + '</span></div><div class="mid"><div class="t">' +
+    esc(recTitle(r)) + '</div>' + (sub.length ? '<div class="s">' + esc(sub.join(' - ')) + '</div>' : '') + meds +
+    '</div><div class="side"><span class="tag c-' + r.Category + '">' + SHORT[r.Category] + '</span><span class="pg">' + r.Files.length + 'pg</span></div></div>';
+}
+function listHtml(list, person, med) {
+  return list.length ? '<div class="card">' + list.map(function (r) { return rowHtml(r, person, med); }).join('') + '</div>'
+    : '<div class="card empty"><h4>Nothing here yet</h4>Add your first prescription, lab report or photo.<br><button class="btn" data-act="new">Add record</button></div>';
+}
+
+/* ───── member timeline ───── */
+function renderList() {
+  var member = S.mode === 'member', m = member ? mem(S.cur) : null, list;
+  $('lEdit').style.display = member && isAdmin() ? '' : 'none';
+  $('lTitle').textContent = member ? m.Name : 'Needs details';
+  $('lFilters').style.display = $('lq').style.display = member ? '' : 'none';
+  if (member) {
+    $('lHead').innerHTML = '<div class="hero"><h3>' + esc(m.Name) + '</h3><p>' + esc([m.Relation, age(m.DOB), m.BloodGroup ? 'Blood ' + m.BloodGroup : ''].filter(Boolean).join(' - ')) + '</p></div>' +
+      (m.AlertNote ? '<div class="alert"><b>Alert</b>' + esc(m.AlertNote) + '</div>' : '');
+    $('lFilters').innerHTML = ['All'].concat(CATS).map(function (c) {
+      return '<button class="f' + (S.filter === c ? ' sel' : '') + '" data-act="filter" data-id="' + c + '">' + (SHORT[c] || c) + '</button>';
+    }).join('');
+    var q = $('lq').value.trim();
+    list = S.records.filter(function (r) {
+      return r.MemberID === S.cur && (S.filter === 'All' || r.Category === S.filter) && (!q || matches(r, q));
+    });
+  } else {
+    $('lHead').innerHTML = '<p class="rs">Open each record and add a doctor, a title or the medicines.</p>';
+    list = S.records.filter(needs);
+  }
+  sortRecs(list);
+  if (!list.length) {
+    $('lBody').innerHTML = '<div class="card empty"><h4>' + (member ? 'No records yet' : 'All caught up') + '</h4>' +
+      (member ? 'Snap a prescription or upload a report for ' + esc(m.Name) + '.<br><button class="btn" data-act="new">Add first record</button>' : 'Every record has its details.') + '</div>';
+    return;
+  }
+  var html = '', last = '';
+  list.forEach(function (r) {
+    var x = ymd(r.Date), key = x.y + '-' + x.m;
+    if (key !== last) { if (last) html += '</div>'; html += '<div class="month">' + MONFULL[x.m] + ' ' + x.y + '</div><div class="card">'; last = key; }
+    html += rowHtml(r, !member, true);
+  });
+  $('lBody').innerHTML = html + '</div>';
+}
+
+/* ───── record view ───── */
+function renderRec() {
+  var r = S.rec; if (!r) return;
+  $('recBody').innerHTML = '<h3 class="rt">' + esc(recTitle(r)) + '</h3><p class="rs">' + esc(pname(r.MemberID) + ' - ' + r.Category + ' - ' + dmy(r.Date)) +
+    (r.Doctor && r.Title ? esc(' - ' + r.Doctor) : '') + '</p><div style="margin-top:14px" id="pv"></div><div class="pager" id="pager"></div>' +
+    (r.Medicines ? '<div class="sec"><span>Medicines</span></div><div class="card meds">' + esc(r.Medicines) + '</div>' : '') +
+    (r.Notes ? '<div class="sec"><span>Notes</span></div><div class="card meds">' + esc(r.Notes) + '</div>' : '') +
+    '<div class="btns"><button class="btn" data-act="share">Share</button><button class="btn alt" data-act="download">Download</button>' +
+    (isAdmin() ? '<button class="btn danger" data-act="del">Delete</button>' : '') + '</div>';
+  S.pg = Math.min(S.pg, Math.max(r.Files.length - 1, 0));
+  showPage();
+  r.Files.forEach(function (f) { fetchBlob(f).catch(function () {}); });
+}
+function b64Blob(b64, mime) {
+  var bin = atob(b64), u = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return new Blob([u], { type: mime });
+}
+function fetchBlob(f) {
+  if (S.blobs[f.id]) return Promise.resolve(S.blobs[f.id]);
+  if (!S.pend) S.pend = {};
+  if (!S.pend[f.id]) S.pend[f.id] = gs('getFile', f.id).then(function (res) {
+    var b = { blob: b64Blob(res.data, res.mime), name: f.name || res.name, mime: res.mime };
+    b.url = URL.createObjectURL(b.blob); S.blobs[f.id] = b; return b;
+  }).catch(function (e) { delete S.pend[f.id]; throw e; });
+  return S.pend[f.id];
+}
+function showPage() {
+  var r = S.rec, f = r.Files[S.pg], pv = $('pv'), pr = $('pager');
+  if (!f) { pv.innerHTML = '<div class="pv load">No file attached.</div>'; pr.innerHTML = ''; return; }
+  pr.innerHTML = r.Files.length > 1 ? '<button data-act="prev"' + (S.pg ? '' : ' disabled') + '>&#8249;</button>Page ' + (S.pg + 1) + ' of ' + r.Files.length +
+    '<button data-act="next"' + (S.pg < r.Files.length - 1 ? '' : ' disabled') + '>&#8250;</button>' : '';
+  pv.innerHTML = '<div class="pv load">Loading file...</div>';
+  var rid = r.RecordID, pg = S.pg;
+  fetchBlob(f).then(function (b) {
+    if (!S.rec || S.rec.RecordID !== rid || S.pg !== pg) return;
+    $('pv').innerHTML = b.mime === 'application/pdf'
+      ? '<div class="pv"><div class="doc"><b>PDF document</b><div class="s" style="margin-bottom:16px">' + esc(b.name) + '</div><a class="btn" style="display:inline-block;text-decoration:none;padding:12px 26px" href="' + b.url + '" target="_blank">Open PDF</a></div></div>'
+      : '<div class="pv"><img alt="Record page ' + (pg + 1) + '" src="' + b.url + '"></div>';
+  }).catch(function (e) {
+    if (S.rec && S.rec.RecordID === rid) $('pv').innerHTML = '<div class="pv load">Could not load this file. ' + esc(msg(e)) + '</div>';
+  });
+}
+function download(b) {
+  var a = document.createElement('a'); a.href = b.url; a.download = b.name; document.body.appendChild(a); a.click(); a.remove();
+}
+function allBlobs() { return Promise.all(S.rec.Files.map(fetchBlob)); }
+
+/* ───── add / edit record ───── */
+function startAdd(rec) {
+  S.edit = rec || null; S.files = [];
+  S.who = rec ? rec.MemberID : (S.who && mem(S.who) && mem(S.who).Active ? S.who : S.user.MemberID);
+  if (rec) S.cat = rec.Category;
+  $('aTitle').textContent = rec ? 'Edit record' : 'New record';
+  $('aDate').value = rec ? rec.Date : S.today;
+  $('aDoctor').value = rec ? rec.Doctor : '';
+  $('aMeds').value = rec ? rec.Medicines : '';
+  $('aNotes').value = rec ? rec.Notes : '';
+  $('aTitle2').value = rec ? rec.Title : '';
+  $('aSugg').innerHTML = '';
+  $('aSave').disabled = false;
+  renderAdd(); go('add');
+}
+function renderAdd() {
+  $('aWho').innerHTML = activeMembers().map(function (m, i) {
+    return '<button class="pick' + (S.who === m.MemberID ? ' sel' : '') + '" data-act="who" data-id="' + m.MemberID + '"' + (S.edit && S.who !== m.MemberID ? ' disabled' : '') +
+      '><i class="av a' + (i % 6) + '">' + esc(m.Name.charAt(0).toUpperCase()) + '</i><b>' + esc(m.Name) + '</b></button>';
+  }).join('');
+  $('aCats').innerHTML = CATS.map(function (c) {
+    return '<button class="cat' + (S.cat === c ? ' sel' : '') + '" data-act="cat" data-id="' + c + '">' + (SHORT[c]) + '</button>';
+  }).join('');
+  var old = S.edit ? S.edit.Files : [], h = '';
+  old.forEach(function (f, i) { h += '<div class="thumb">pg' + (i + 1) + '</div>'; });
+  S.files.forEach(function (f, i) {
+    h += '<div class="thumb" style="' + (f.mime === 'application/pdf' ? '' : 'background-image:url(' + f.data + ')') + '">' + (f.mime === 'application/pdf' ? 'PDF' : '') +
+      '<i data-act="rmFile" data-id="' + i + '">&times;</i></div>';
+  });
+  if (old.length + S.files.length < 5) h += '<button class="addpg" data-act="addPage">+ page</button>';
+  $('aPages').innerHTML = h;
+}
+function readData(file) {
+  return new Promise(function (ok, no) { var r = new FileReader(); r.onload = function () { ok(r.result); }; r.onerror = no; r.readAsDataURL(file); });
+}
+function compress(file) {
+  return new Promise(function (ok, no) {
+    var img = new Image(), u = URL.createObjectURL(file);
+    img.onload = function () {
+      var k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u); ok(c.toDataURL('image/jpeg', 0.82));
+    };
+    img.onerror = function () { URL.revokeObjectURL(u); no(new Error('This image format is not supported. Try a JPEG or PDF.')); };
+    img.src = u;
+  });
+}
+function onFiles(input) {
+  var list = [].slice.call(input.files), have = (S.edit ? S.edit.Files.length : 0) + S.files.length;
+  input.value = '';
+  if (!list.length) return;
+  busy(true);
+  list.reduce(function (p, f) {
+    return p.then(function () {
+      if (have >= 5) { toast('A record holds up to 5 pages.', true); return; }
+      if (f.type === 'application/pdf') {
+        if (f.size > 10 * 1024 * 1024) { toast('PDF files can be up to 10 MB.', true); return; }
+        return readData(f).then(function (d) { S.files.push({ name: f.name, mime: f.type, data: d }); have++; });
+      }
+      return compress(f).then(function (d) { S.files.push({ name: f.name, mime: 'image/jpeg', data: d }); have++; });
+    });
+  }, Promise.resolve()).catch(function (e) { toast(msg(e), true); }).then(function () { busy(false); renderAdd(); });
+}
+function suggest() {
+  var ta = $('aMeds'), pre = ta.value.slice(0, ta.selectionStart), line = pre.split('\n').pop().trim().toLowerCase();
+  var out = [];
+  if (line.length > 1) out = S.meds.filter(function (m) { var l = m.toLowerCase(); return l !== line && l.indexOf(line) > -1; }).slice(0, 5);
+  S.sugg = out;
+  $('aSugg').innerHTML = out.map(function (m, i) { return '<button data-act="sugg" data-id="' + i + '">' + esc(m) + '</button>'; }).join('');
+}
+function saveRec() {
+  var who = S.who;
+  if (!who) return toast('Choose who this record is for.', true);
+  if (!(S.edit ? S.edit.Files.length : 0) && !S.files.length) return toast('Add a photo or a file first.', true);
+  var r = {
+    RecordID: S.edit ? S.edit.RecordID : '', MemberID: who, Category: S.cat, Date: $('aDate').value || S.today,
+    Title: $('aTitle2').value, Doctor: $('aDoctor').value, Medicines: $('aMeds').value, Notes: $('aNotes').value
+  };
+  var nf = S.files.map(function (f) { return { name: f.name, mime: f.mime, data: f.data.split(',')[1] }; });
+  $('aSave').disabled = true; busy(true);
+  gs('saveRecord', r, nf).then(function (res) {
+    var rec = prep(res.record), i = -1;
+    S.records.forEach(function (x, k) { if (x.RecordID === rec.RecordID) i = k; });
+    if (i > -1) S.records[i] = rec; else S.records.push(rec);
+    S.who = who; buildIndex();
+    toast('Saved');
+    if (S.edit) { S.rec = rec; back(); }
+    else { S.stack = []; show('home'); renderHome(); }
+  }).catch(function (e) { $('aSave').disabled = false; toast(msg(e), true); }).then(function () { busy(false); });
+}
+
+/* ───── person form (admin) ───── */
+function memberForm(m) {
+  m = m || { Name: '', Relation: '', DOB: '', BloodGroup: '', Email: '', Role: 'Member', AlertNote: '', Active: true };
+  var bg = ['', 'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+  $('mBody').innerHTML = '<h3>' + (m.MemberID ? 'Edit person' : 'Add person') + '</h3>' +
+    '<label class="lbl">Name</label><input class="in" id="mName" value="' + esc(m.Name) + '">' +
+    '<div class="fld"><div><label class="lbl">Relation</label><input class="in" id="mRel" value="' + esc(m.Relation) + '" placeholder="Wife, Father"></div>' +
+    '<div><label class="lbl">Date of birth</label><input class="in" id="mDob" type="date" value="' + esc(m.DOB) + '"></div></div>' +
+    '<div class="fld"><div><label class="lbl">Blood group</label><select class="in" id="mBg">' + bg.map(function (b) { return '<option' + (b === m.BloodGroup ? ' selected' : '') + '>' + b + '</option>'; }).join('') + '</select></div>' +
+    '<div><label class="lbl">Role</label><select class="in" id="mRole"><option' + (m.Role === 'Member' ? ' selected' : '') + '>Member</option><option' + (m.Role === 'Admin' ? ' selected' : '') + '>Admin</option></select></div></div>' +
+    '<label class="lbl">Gmail (leave blank for children)</label><input class="in" id="mEmail" type="email" value="' + esc(m.Email) + '">' +
+    '<label class="lbl">Alert note (allergies, long-term conditions)</label><textarea class="in" id="mAlert">' + esc(m.AlertNote) + '</textarea>' +
+    '<label class="lbl"><input type="checkbox" id="mActive"' + (m.Active ? ' checked' : '') + '> Active</label>' +
+    (m.MemberID ? '<label class="lbl"><input type="checkbox" id="mReset"> Reset PIN (they will create a new one at next sign-in)</label>' : '') +
+    '<div class="btns"><button class="btn alt" data-act="closeMember">Cancel</button><button class="btn" data-act="saveMember" data-id="' + esc(m.MemberID || '') + '">Save person</button></div>';
+  $('m-member').classList.add('on');
+}
+function saveMember(id) {
+  var m = { MemberID: id, Name: $('mName').value, Relation: $('mRel').value, DOB: $('mDob').value, BloodGroup: $('mBg').value,
+    Email: $('mEmail').value, Role: $('mRole').value, AlertNote: $('mAlert').value, Active: $('mActive').checked,
+    ResetPin: !!($('mReset') && $('mReset').checked) };
+  busy(true);
+  gs('saveMember', m).then(function (res) {
+    S.members = res.members; S.user = res.user; S.records.forEach(prep);
+    $('m-member').classList.remove('on'); toast('Saved');
+    if (S.view === 'list') renderList(); else renderHome();
+  }).catch(function (e) { toast(msg(e), true); }).then(function () { busy(false); });
+}
+
+/* ───── actions ───── */
+ACT.back = back;
+ACT.refresh = function () { load(true); };
+ACT.new = function () { if (S.view === 'list' && S.mode === 'member') S.who = S.cur; startAdd(null); };
+ACT.member = function (id) { S.cur = id; S.mode = 'member'; S.filter = 'All'; $('lq').value = ''; renderList(); go('list'); };
+ACT.needs = function () { S.mode = 'needs'; renderList(); go('list'); };
+ACT.filter = function (id) { S.filter = id; renderList(); };
+ACT.open = function (id) { S.rec = S.records.filter(function (r) { return r.RecordID === id; })[0]; S.pg = 0; renderRec(); go('rec'); };
+ACT.editRec = function () { if (S.rec) startAdd(S.rec); };
+ACT.who = function (id) { S.who = id; renderAdd(); };
+ACT.cat = function (id) { S.cat = id; renderAdd(); };
+ACT.addPage = function () { $('pick').click(); };
+ACT.rmFile = function (i) { S.files.splice(+i, 1); renderAdd(); };
+ACT.saveRec = saveRec;
+ACT.prev = function () { S.pg--; showPage(); };
+ACT.next = function () { S.pg++; showPage(); };
+ACT.sugg = function (i) {
+  var ta = $('aMeds'), v = ta.value, pos = ta.selectionStart, s = v.lastIndexOf('\n', pos - 1) + 1, e = v.indexOf('\n', pos);
+  if (e < 0) e = v.length;
+  ta.value = v.slice(0, s) + S.sugg[+i] + v.slice(e); ta.focus(); $('aSugg').innerHTML = '';
+};
+ACT.download = function () {
+  allBlobs().then(function (bs) { bs.forEach(function (b, i) { setTimeout(function () { download(b); }, i * 400); }); })
+    .catch(function (e) { toast(msg(e), true); });
+};
+ACT.share = function () {
+  allBlobs().then(function (bs) {
+    var fl = bs.map(function (b) { return new File([b.blob], b.name, { type: b.mime }); });
+    if (navigator.canShare && navigator.canShare({ files: fl })) {
+      return navigator.share({ files: fl, title: recTitle(S.rec) }).catch(function (e) { if (e && e.name !== 'AbortError') throw e; });
+    }
+    ACT.download(); toast('Sharing is not available here. Downloading instead.');
+  }).catch(function () { ACT.download(); toast('Sharing is blocked here. Downloading instead.'); });
+};
+ACT.del = function () {
+  if (!confirm('Delete this record? An Admin can restore it from the Sheet.')) return;
+  busy(true);
+  gs('deleteRecord', S.rec.RecordID).then(function () {
+    S.records = S.records.filter(function (r) { return r.RecordID !== S.rec.RecordID; });
+    S.rec = null; toast('Deleted'); back();
+  }).catch(function (e) { toast(msg(e), true); }).then(function () { busy(false); });
+};
+ACT.newMember = function () { memberForm(null); };
+ACT.editMember = function () { memberForm(mem(S.cur)); };
+ACT.closeMember = function () { $('m-member').classList.remove('on'); };
+ACT.saveMember = function (id) { saveMember(id); };
+
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('[data-act]');
+  if (!t || t.disabled) return;
+  e.stopPropagation();
+  if (ACT[t.dataset.act]) ACT[t.dataset.act](t.dataset.id, t);
+});
+$('q').addEventListener('input', renderHome);
+$('lq').addEventListener('input', renderList);
+$('aMeds').addEventListener('input', suggest);
+$('aMeds').addEventListener('click', suggest);
+$('cam').addEventListener('change', function () { onFiles(this); });
+$('pick').addEventListener('change', function () { onFiles(this); });
+
+/* ───── PIN lock ───── */
+var PINS = { len: 6, entry: '', first: '', mode: 'enter', busy: false, hiddenAt: 0 };
+(function () {
+  var st = document.createElement('style');
+  st.textContent = '.pdots{display:flex;gap:14px;justify-content:center;margin:20px 0 26px}' +
+    '.pdots i{width:14px;height:14px;border-radius:50%;border:2px solid currentColor;display:block;opacity:.6}' +
+    '.pdots i.on{background:currentColor;opacity:1}' +
+    '.ppad{display:grid;grid-template-columns:repeat(3,72px);gap:14px;justify-content:center}' +
+    '.ppad button{height:72px;border-radius:50%;border:0;background:rgba(127,127,127,.18);font-size:26px;color:inherit;cursor:pointer}' +
+    '.ppad button:active{background:rgba(127,127,127,.38)}' +
+    '.ppad .gh{background:transparent;cursor:default}' +
+    '.pshake{animation:psh .35s}@keyframes psh{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}';
+  document.head.appendChild(st);
+})();
+
+function pinDraw(title, text) {
+  var dots = '', i;
+  for (i = 0; i < PINS.len; i++) dots += '<i></i>';
+  var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(function (k) {
+    return k === '' ? '<button class="gh" disabled></button>' : '<button data-act="pinKey" data-id="' + k + '">' + k + '</button>';
+  }).join('');
+  $('lockBody').innerHTML = '<h3>' + esc(title) + '</h3><p id="pinMsg">' + esc(text) + '</p><div class="pdots" id="pdots">' + dots + '</div><div class="ppad">' + keys + '</div>';
+}
+function pinDots() {
+  var d = $('pdots');
+  if (d) [].forEach.call(d.children, function (x, i) { x.className = i < PINS.entry.length ? 'on' : ''; });
+}
+function pinMsg(t) { var m = $('pinMsg'); if (m) m.textContent = t; }
+function pinBad(text) {
+  PINS.entry = ''; pinDots(); pinMsg(text);
+  var b = $('lockBody'); b.classList.remove('pshake'); void b.offsetWidth; b.classList.add('pshake');
+}
+
+function showPin() {
+  S.stack = []; PINS.entry = ''; PINS.first = '';
+  busy(true);
+  gs('pinStatus').then(function (st) {
+    PINS.len = st.len;
+    if (st.hasPin) {
+      PINS.mode = 'enter';
+      pinDraw('Welcome, ' + st.name, st.locked ? 'Too many attempts. Try again in 15 minutes.' : 'Enter your PIN');
+    } else {
+      PINS.mode = 'create';
+      pinDraw('Create your PIN', 'Choose a ' + st.len + '-digit PIN');
+    }
+    show('lock');
+  }).catch(fail).then(function () { busy(false); });
+}
+
+ACT.pinKey = function (k) {
+  if (PINS.busy) return;
+  if (k === '⌫') PINS.entry = PINS.entry.slice(0, -1);
+  else if (PINS.entry.length < PINS.len) PINS.entry += k;
+  pinDots();
+  if (PINS.entry.length === PINS.len) pinSubmit();
+};
+
+function pinSubmit() {
+  var pin = PINS.entry;
+  if (PINS.mode === 'create') {
+    PINS.first = pin; PINS.entry = ''; PINS.mode = 'confirm'; pinDots(); pinMsg('Enter the PIN again to confirm'); return;
+  }
+  if (PINS.mode === 'confirm') {
+    if (pin !== PINS.first) { PINS.mode = 'create'; PINS.first = ''; return pinBad('PINs did not match. Start again.'); }
+    return pinGo('createPin', pin);
+  }
+  pinGo('verifyPin', pin);
+}
+
+function pinGo(fn, pin) {
+  PINS.busy = true; pinMsg('Checking...');
+  gs(fn, pin).then(function (r) {
+    PINS.busy = false;
+    if (r.ok) { TOKEN = r.token; PINS.entry = ''; load(false); }
+    else pinBad(r.locked ? 'Too many attempts. Try again in 15 minutes.' : (r.error || 'Wrong PIN. ' + r.left + ' attempt(s) left.'));
+  }).catch(function (e) {
+    PINS.busy = false;
+    if (fn === 'createPin') { PINS.mode = 'create'; PINS.first = ''; }
+    pinBad(msg(e));
+  });
+}
+
+function lockNow() {
+  var t = TOKEN; TOKEN = null;
+  Object.keys(S.blobs).forEach(function (k) { try { URL.revokeObjectURL(S.blobs[k].url); } catch (e) {} });
+  S.blobs = {}; S.pend = {}; S.records = []; S.members = []; S.rec = null; S.files = []; S.edit = null;
+  $('m-member').classList.remove('on');
+  ['people', 'tray', 'homeList', 'lHead', 'lBody', 'recBody'].forEach(function (id) { if ($(id)) $(id).innerHTML = ''; });
+  if (t) gs('logout', t).catch(function () {});
+  showPin();
+}
+ACT.lock = lockNow;
+
+// Auto-lock after 5 minutes in the background
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) PINS.hiddenAt = Date.now();
+  else if (TOKEN && PINS.hiddenAt && Date.now() - PINS.hiddenAt > 5 * 60 * 1000) lockNow();
+});
+
+/* ───── load ───── */
+function lock(title, text, retry) {
+  $('lockBody').innerHTML = '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p>' + (retry ? '<button class="btn" style="max-width:200px;margin:18px auto 0" data-act="refresh">Try again</button>' : '');
+  S.stack = []; show('lock');
+}
+function fail(e) {
+  var m = msg(e);
+  if (m.indexOf('enter your PIN') > -1) return;
+  if (m.indexOf('NO_ACCESS') > -1) {
+    var email = m.split('|')[1];
+    lock('No access', email ? email + ' is not on the family list. Ask an Admin to add this Gmail address.' : 'Your Google account could not be identified. The owner needs to run the identity test.', false);
+  } else if (m.indexOf('SETUP_REQUIRED') > -1) {
+    lock('Setup needed', 'Open the script editor and run setup() once, then reload this page.', true);
+  } else lock('Could not load', m, true);
+}
+function load(keep) {
+  if (!TOKEN) return showPin();
+  busy(true);
+  gs('bootstrap').then(function (d) {
+    S.user = d.user; S.members = d.members; S.records = d.records; S.today = d.today;
+    buildIndex();
+    if (!keep || S.view === 'lock') { S.stack = []; show('home'); }
+    S.rec = S.rec && S.records.filter(function (r) { return r.RecordID === S.rec.RecordID; })[0] || null;
+    if (S.view === 'home') renderHome(); else if (S.view === 'list') renderList(); else if (S.view === 'rec') S.rec ? renderRec() : back();
+    if (keep) toast('Up to date');
+  }).catch(fail).then(function () { busy(false); });
+}
+load(false);
+</script>

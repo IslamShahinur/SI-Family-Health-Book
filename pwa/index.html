@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SI Family Health Book</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Health Book">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+  html,body{margin:0;min-height:100%;background:#0f766e;color:#fff;
+    font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+  main{min-height:100vh;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;text-align:center;padding:24px;
+    padding-top:calc(24px + env(safe-area-inset-top));padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+  img{width:96px;height:96px;border-radius:22px;margin-bottom:18px}
+  h1{margin:0 0 6px;font-size:24px}
+  p{margin:0 0 20px;color:#d5efec;max-width:320px}
+  .btn{display:block;box-sizing:border-box;width:100%;max-width:300px;margin:0 auto 12px;padding:14px;
+    border:0;border-radius:12px;font:600 16px system-ui,sans-serif;text-decoration:none;cursor:pointer}
+  .main{background:#fff;color:#0f766e}
+  .alt{background:rgba(255,255,255,.16);color:#fff}
+  #ios,#warn{display:none;max-width:300px;margin:0 auto 16px;padding:12px 14px;border-radius:12px;
+    background:rgba(255,255,255,.14);font-size:15px}
+  #warn{background:#fde8e8;color:#8a1c1c}
+  :focus-visible{outline:3px solid #fff;outline-offset:2px}
+</style>
+</head>
+<body>
+<main>
+  <img src="icons/icon-192.png" alt="">
+  <h1>SI Family Health Book</h1>
+  <p>Private family health records.</p>
+  <button class="btn main" id="install" hidden>Install app</button>
+  <div id="ios">On iPhone: tap the Share button, then <b>Add to Home Screen</b>.</div>
+  <div id="warn">Setup needed: open <b>index.html</b> and replace <b>YOUR_DEPLOYMENT_ID</b> with your Apps Script web app link.</div>
+  <a class="btn alt" id="go" href="#">Open Health Book</a>
+</main>
+<script>
+  // 1) Paste your Apps Script Web App /exec link here:
+  var APP = 'https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec';
+
+  var go = document.getElementById('go');
+  go.href = APP;
+  if (APP.indexOf('YOUR_DEPLOYMENT_ID') > -1) document.getElementById('warn').style.display = 'block';
+
+  var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  if (standalone && APP.indexOf('YOUR_DEPLOYMENT_ID') === -1) {
+    // Launched from the home-screen icon: go straight to the app.
+    location.replace(APP);
+  }
+
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+
+  // Android / Chrome: show an Install button when the browser allows it.
+  var deferred = null, btn = document.getElementById('install');
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault(); deferred = e; btn.hidden = false;
+  });
+  btn.addEventListener('click', function () {
+    if (!deferred) return;
+    deferred.prompt();
+    deferred.userChoice.then(function () { deferred = null; btn.hidden = true; });
+  });
+  window.addEventListener('appinstalled', function () { btn.hidden = true; });
+
+  // iPhone / iPad: no install button exists, so show the steps.
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (ios && !standalone) document.getElementById('ios').style.display = 'block';
+</script>
+</body>
+</html>

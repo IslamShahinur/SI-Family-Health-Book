@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="theme-color" content="#17434A">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Spectral:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#F0F5F6; --card:#FFFFFF; --ink:#14262B; --mute:#62777C; --line:#DCE6E8;
+  --deep:#17434A; --lagoon:#1B5E6B; --lagoon2:#2A7F8E; --mist:#DDEEF0;
+  --amber:#8F650F; --amberbg:#FBF1D9; --rose:#A93A4A; --rosebg:#FBE9EC;
+  --r:14px; --sh:0 1px 2px rgba(20,38,43,.04),0 8px 24px rgba(23,67,74,.07);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 Figtree,system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--lagoon2);outline-offset:2px}
+.wrap{max-width:1000px;margin:0 auto;min-height:100vh;padding-bottom:calc(96px + env(safe-area-inset-bottom))}
+.view{display:none}.view.on{display:block}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:8px;padding:12px 14px;background:var(--deep);color:#fff;min-height:56px}
+.bar h1{flex:1;margin:0;font:600 21px Spectral,Georgia,serif;letter-spacing:.2px}
+.bar h2{flex:1;margin:0;font-size:16px;font-weight:600;text-align:center}
+.bar .ghost{color:#CFE6EA;padding:8px 6px;font-weight:500}
+.ib{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:20px;display:grid;place-items:center}
+.ib.add{background:#fff;color:var(--deep);font-size:24px;font-weight:600}
+.pad{padding:16px 14px 40px}
+.search{width:100%;padding:13px 16px;border:1px solid var(--line);border-radius:999px;background:var(--card);box-shadow:var(--sh);outline:0}
+.search:focus{border-color:var(--lagoon2)}
+.sec{margin:22px 4px 8px;font-size:13px;font-weight:600;color:var(--mute);display:flex;justify-content:space-between}
+.chips{display:flex;gap:10px;overflow-x:auto;padding:14px 2px 4px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.who{flex:0 0 auto;width:74px;text-align:center}
+.av{display:grid;place-items:center;width:56px;height:56px;margin:0 auto 6px;border-radius:50%;font:600 20px Spectral,serif;font-style:normal;color:var(--deep);background:var(--mist);border:2px solid transparent;transition:.15s}
+.who b{display:block;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.who small{color:var(--mute);font-size:12px}
+.a1{background:#E3EDF7;color:#25507A}.a2{background:#EAE5F5;color:#51428A}.a3{background:#E2F1E8;color:#2C6A45}
+.a4{background:#F5E9E4;color:#8A4A33}.a5{background:#E1F0F0;color:#1B6670}
+.who.sel .av,.pick.sel .av{background:var(--lagoon);color:#fff;border-color:var(--mist);box-shadow:0 0 0 2px var(--lagoon)}
+.who.plus .av{background:transparent;border:1.5px dashed #9DB6BB;color:var(--lagoon);font:400 26px Figtree}
+.tray{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:18px;padding:14px 16px;border-radius:var(--r);background:var(--amberbg);color:var(--amber);font-weight:600;text-align:left}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--sh);overflow:hidden}
+.row{display:flex;gap:12px;align-items:center;padding:13px 14px;border-bottom:1px solid var(--line);cursor:pointer;background:var(--card)}
+.row:last-child{border-bottom:0}.row:active{background:#F5F9FA}
+.d{flex:0 0 42px;text-align:center;line-height:1.05}
+.d b{display:block;font:600 21px Spectral,serif;color:var(--deep)}.d span{font-size:12px;color:var(--mute)}
+.mid{flex:1;min-width:0}
+.t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.s{font-size:13px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side{display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.tag{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--cb);color:var(--cc)}
+.pg{font-size:12px;color:var(--mute)}
+.c-Prescription{--cc:#17595F;--cb:#DCEFF0}.c-Lab{--cc:#41559E;--cb:#E5E9F7}.c-Dental{--cc:#8A5F1C;--cb:#F8EBD3}
+.c-Eye{--cc:#2D7A6A;--cb:#DCF1EA}.c-General{--cc:#6B4B8A;--cb:#EEE5F5}.c-Other{--cc:#56686D;--cb:#E8EEEF}
+.empty{padding:34px 20px;text-align:center;color:var(--mute)}
+.hero{padding:18px 16px;background:linear-gradient(135deg,var(--deep),var(--lagoon2));color:#fff;border-radius:var(--r);box-shadow:var(--sh)}
+.hero h3{margin:0;font:600 26px Spectral,serif}.hero p{margin:2px 0 0;color:#CFE6EA;font-size:14px}
+.alert{margin-top:12px;padding:12px 14px;border-radius:var(--r);background:var(--rosebg);color:var(--rose);font-weight:500;border-left:4px solid var(--rose)}
+.alert b{display:block;font-size:13px;margin-bottom:2px}
+.filters{display:flex;gap:8px;overflow-x:auto;padding:14px 0 10px;scrollbar-width:none}.filters::-webkit-scrollbar{display:none}
+.f,.cat{flex:0 0 auto;padding:7px 14px;border-radius:999px;background:var(--card);border:1px solid var(--line);font-weight:500;color:var(--mute)}
+.f.sel,.cat.sel{background:var(--lagoon);border-color:var(--lagoon);color:#fff}
+.month{margin:20px 4px 8px;font:600 15px Spectral,serif;color:var(--lagoon)}
+.lbl{display:block;margin:18px 2px 8px;font-size:13px;font-weight:600;color:var(--mute)}
+.in{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);outline:0}
+.in:focus{border-color:var(--lagoon2);box-shadow:0 0 0 3px rgba(42,127,142,.15)}
+textarea.in{min-height:92px;resize:vertical}
+.opt{margin:22px 2px 0;padding-top:14px;border-top:1px dashed #BCD0D4;font-size:13px;color:var(--mute)}
+.btns{display:flex;gap:10px;margin-top:22px}
+.btn{flex:1;padding:14px;border-radius:12px;background:var(--lagoon);color:#fff;font-weight:600;text-align:center;box-shadow:var(--sh)}
+.btn.alt{background:var(--card);color:var(--lagoon);border:1px solid var(--line);box-shadow:none}
+.btn.danger{background:var(--rosebg);color:var(--rose);box-shadow:none}
+.btn.big{display:block;width:100%;margin-top:26px;padding:16px;font-size:16px}
+.btn[disabled]{opacity:.5}
+.pages{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.thumb{position:relative;width:64px;height:78px;border-radius:10px;background:var(--mist) center/cover;border:1px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:600;color:var(--lagoon)}
+.thumb i{position:absolute;top:-7px;right:-7px;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-style:normal;display:grid;place-items:center;font-size:13px}
+.addpg{width:64px;height:78px;border-radius:10px;border:1.5px dashed #9DB6BB;color:var(--lagoon);font-size:12px;font-weight:600}
+.sugg{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.sugg button{padding:5px 11px;border-radius:999px;background:var(--mist);color:var(--deep);font-size:13px}
+.pick{display:inline-block;width:68px;text-align:center;margin:0 4px 6px 0}
+.pick .av{width:50px;height:50px;font-size:18px}.pick b{font-size:12px;font-weight:600}
+.pick[disabled]{opacity:.35}
+.pv{background:var(--card);border-radius:var(--r);box-shadow:var(--sh);padding:10px;text-align:center}
+.pv img{max-width:100%;max-height:62vh;border-radius:8px;display:block;margin:0 auto}
+.pv .doc{padding:36px 10px}.pv .doc b{display:block;font:600 18px Spectral,serif;margin-bottom:4px}
+.pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:10px;color:var(--mute);font-size:13px}
+.pager button{width:34px;height:34px;border-radius:50%;background:var(--mist);color:var(--deep);font-size:18px}
+.pager button[disabled]{opacity:.35}
+.load{padding:50px 0;color:var(--mute)}
+.meds{white-space:pre-wrap;padding:14px 16px;font-weight:500}
+.rt{margin:16px 4px 2px;font:600 24px Spectral,serif}.rs{margin:0 4px;color:var(--mute)}
+.fld{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.modal{position:fixed;inset:0;z-index:20;background:rgba(20,38,43,.5);display:none;align-items:flex-end;justify-content:center}
+.modal.on{display:flex}
+.sheet{width:100%;max-width:600px;max-height:92vh;overflow:auto;background:var(--bg);border-radius:22px 22px 0 0;padding:6px 16px 28px}
+.sheet h3{font:600 22px Spectral,serif;margin:14px 2px 0}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,30px);opacity:0;z-index:40;max-width:90%;padding:12px 18px;border-radius:12px;background:var(--ink);color:#fff;font-weight:500;transition:.25s;pointer-events:none}
+.toast.on{opacity:1;transform:translate(-50%,0)}.toast.err{background:var(--rose)}
+#busy{position:fixed;inset:0;z-index:30;background:rgba(240,245,246,.7);display:none;place-items:center}
+#busy.on{display:grid}
+.spin{width:38px;height:38px;border-radius:50%;border:4px solid var(--mist);border-top-color:var(--lagoon);animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.lock{padding:70px 26px;text-align:center}.lock h3{font:600 26px Spectral,serif;margin:0 0 8px}.lock p{color:var(--mute)}
+
+.two{display:block}
+.narrow{max-width:660px;margin:0 auto}
+.fab{position:fixed;right:max(18px,calc(50% - 482px));bottom:calc(20px + env(safe-area-inset-bottom));z-index:12;display:flex;align-items:center;gap:8px;padding:15px 24px;border-radius:999px;background:var(--lagoon);color:#fff;font-weight:600;font-size:16px;box-shadow:0 10px 28px rgba(23,67,74,.35)}
+.fab b{font-size:24px;line-height:1;font-weight:500}
+.fab:active{transform:scale(.97)}
+.empty .btn{display:inline-block;width:auto;margin-top:16px;padding:12px 26px}
+.empty h4{margin:0 0 4px;font:600 20px Spectral,serif;color:var(--ink)}
+.drop{border:1.5px dashed #9DB6BB;border-radius:var(--r);padding:16px;background:#F7FBFB}
+@media (min-width:860px){
+  .bar{border-radius:0 0 16px 16px;padding:14px 22px}
+  .pad{padding:22px 22px 40px}
+  .two{display:grid;grid-template-columns:340px 1fr;gap:26px;align-items:start}
+  .two .ca{position:sticky;top:78px}
+  .two .cb .sec:first-child,.two .cb .month:first-child{margin-top:2px}
+  .chips{flex-wrap:wrap;overflow:visible;padding-top:18px}
+  .who{width:84px}
+  .filters{flex-wrap:wrap;overflow:visible}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation-duration:2s!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Home -->
+  <section class="view on" id="v-home">
+    <div class="bar"><h1>SI Family Health Book</h1><button class="ib" data-act="lock" aria-label="Lock">&#128274;</button><button class="ib" data-act="refresh" aria-label="Refresh">&#8635;</button><button class="ib add" data-act="new" aria-label="New record">+</button></div>
+    <div class="pad two">
+      <div class="ca">
+        <input class="search" id="q" type="search" placeholder="Search medicine, doctor, report" autocomplete="off">
+        <div class="chips" id="people"></div>
+        <div id="tray"></div>
+      </div>
+      <div class="cb" id="homeList"></div>
+    </div>
+  </section>
+
+  <!-- Member timeline / needs details -->
+  <section class="view" id="v-list">
+    <div class="bar"><button class="ghost" data-act="back">&#8249; Back</button><h2 id="lTitle"></h2><button class="ghost" id="lEdit" data-act="editMember">Edit</button></div>
+    <div class="pad two">
+      <div class="ca">
+        <div id="lHead"></div>
+        <div class="filters" id="lFilters"></div>
+        <input class="search" id="lq" type="search" placeholder="Search records" autocomplete="off">
+      </div>
+      <div class="cb" id="lBody"></div>
+    </div>
+  </section>
+
+  <!-- Record view -->
+  <section class="view" id="v-rec">
+    <div class="bar"><button class="ghost" data-act="back">&#8249; Back</button><h2>Record</h2><button class="ghost" data-act="editRec">Edit</button></div>
+    <div class="pad narrow" id="recBody"></div>
+  </section>
+
+  <!-- Add / edit record -->
+  <section class="view" id="v-add">
+    <div class="bar"><button class="ghost" data-act="back">Cancel</button><h2 id="aTitle">New record</h2><span style="width:56px"></span></div>
+    <div class="pad narrow">
+      <label class="lbl" style="margin-top:4px">Who</label>
+      <div id="aWho"></div>
+      <label class="lbl">File</label>
+      <div class="drop">
+        <div class="btns" style="margin-top:0">
+          <label class="btn" for="cam">Take photo</label>
+          <label class="btn alt" for="pick">Choose photo or PDF</label>
+        </div>
+        <div class="s" style="margin-top:10px;text-align:center">Up to 5 pages per record. PDFs up to 10 MB.</div>
+        <div class="pages" id="aPages"></div>
+      </div>
+      <input id="cam" type="file" accept="image/*" capture="environment" hidden>
+      <input id="pick" type="file" accept="image/*,application/pdf" multiple hidden>
+      <label class="lbl">What</label>
+      <div class="filters" style="padding-top:0" id="aCats"></div>
+      <div class="opt">Optional: fill in now or later</div>
+      <label class="lbl" style="margin-top:12px">Date</label>
+      <input class="in" id="aDate" type="date">
+      <label class="lbl">Doctor or clinic</label>
+      <input class="in" id="aDoctor" list="docs" autocomplete="off" placeholder="Dr. Rahman">
+      <datalist id="docs"></datalist>
+      <label class="lbl">Medicines (one per line)</label>
+      <textarea class="in" id="aMeds" placeholder="Napa 500 - 1+1+1 - 5 days"></textarea>
+      <div class="sugg" id="aSugg"></div>
+      <label class="lbl">Notes</label>
+      <textarea class="in" id="aNotes" placeholder="Diagnosis, advice, anything else"></textarea>
+      <label class="lbl">Title</label>
+      <input class="in" id="aTitle2" placeholder="Leave blank to use category and doctor">
+      <button class="btn big" id="aSave" data-act="saveRec">Save record</button>
+    </div>
+  </section>
+
+  <!-- Access / error -->
+  <section class="view" id="v-lock"><div class="lock" id="lockBody"></div></section>
+</div>
+
+<!-- Person form (admin) -->
+<div class="modal" id="m-member"><div class="sheet" id="mBody"></div></div>
+<div id="busy"><div class="spin"></div></div>
+<button class="fab" id="fab" data-act="new"><b>+</b> Add record</button>
+<div class="toast" id="toast"></div>
+
+<?!= include('JavaScript'); ?>
+</body>
+</html>
